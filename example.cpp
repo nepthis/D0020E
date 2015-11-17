@@ -39,7 +39,7 @@ int main()
     /* Transmit some data... */
     sp.serialTransmit("test test test");
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    cin.get();
 
     return 0;
 }
@@ -47,7 +47,7 @@ int main()
 /* Print incomming data... */
 void test(const std::vector<uint8_t> &data)
 {
-    cout << "1: ";
+    cout << "Data received: ";
     for (const uint8_t &v : data)
     {
         cout << v;
