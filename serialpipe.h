@@ -133,7 +133,10 @@ private:
                                           data.begin(), data.end());
 
                         /* Run the callbacks and clear the buffer. */
-                        executeCallbacks(_rx_buffer);
+                        std::async(std::launch::async,
+                                   &SerialPipe::executeCallbacks,
+                                   this,
+                                   _rx_buffer);
                         _rx_buffer.clear();
                     }
                 }
@@ -198,6 +201,7 @@ private:
         for (auto &cb : callbacks)
             cb.callback(payload);
     }
+
 
 public:
 
