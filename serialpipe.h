@@ -33,6 +33,7 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <future>
 
 namespace SerialPipe {
 
@@ -65,8 +66,8 @@ private:
     /** @brief Mutex for the serialport. */
     std::mutex _serial_lock;
 
-    /** @brief Mutex for the ID counter. */
-    std::mutex _idlock;
+    /** @brief Mutex for the ID counter and the callback list. */
+    std::mutex _id_cblock;
 
     /** @brief Vector holding the registered callbacks. */
     std::vector< serial_callback_holder > callbacks;
@@ -144,7 +145,10 @@ private:
                     if (size > 0)
                     {
                         /* Run the callbacks and clear the buffer. */
-                        executeCallbacks(_rx_buffer);
+                        std::async(std::launch::async,
+                                   &SerialPipe::executeCallbacks,
+                                   this,
+                                   _rx_buffer);
                         _rx_buffer.clear();
                     }
                 }
@@ -187,8 +191,10 @@ private:
     }
 
     /** @brief Execute callbacks with data. */
-    void executeCallbacks(const std::vector<uint8_t> &payload)
+    void executeCallbacks(const std::vector<uint8_t> payload)
     {
+        std::lock_guard<std::mutex> locker(_id_cblock);
+
         for (auto &cb : callbacks)
             cb.callback(payload);
     }
@@ -270,11 +276,11 @@ public:
      * @param[in]   The function to register.
      * @note        Shall be of the form void(const std::vector<uint8_t> &).
      *
-     * @return      Returnb the ID of the callback, is used for unregistration.
+     * @return      Return the ID of the callback, is used for unregistration.
      */
     int registerCallback(serial_callback callback)
     {
-        std::lock_guard<std::mutex> locker(_idlock);
+        std::lock_guard<std::mutex> locker(_id_cblock);
 
         /* Add the callback to the list. */
         callbacks.emplace_back(serial_callback_holder(_id, callback));
@@ -291,7 +297,7 @@ public:
      */
     bool unregisterCallback(int id)
     {
-        std::lock_guard<std::mutex> locker(_idlock);
+        std::lock_guard<std::mutex> locker(_id_cblock);
 
         /* Delete the callback with correct ID, a little ugly. */
         for (unsigned int i = 0; i < callbacks.size(); i++)
