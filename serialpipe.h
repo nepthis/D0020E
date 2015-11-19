@@ -143,7 +143,15 @@ private:
                 else
                 {
                     std::lock_guard<std::mutex> locker(_rx_buffer_lock);
-                    int size = _serial->read(_rx_buffer, 1000);
+                    int size = 0;
+                    
+                    try {
+                        size = _serial->read(_rx_buffer, 1000);
+                    }
+                    catch (serial::SerialException e)
+                    {
+                        closePort();
+                    }
 
                     if (size > 0)
                     {
@@ -370,4 +378,3 @@ public:
 } // namespace SerialPipe
 
 #endif
-
