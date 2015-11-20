@@ -137,29 +137,30 @@ private:
                                    &SerialPipe::executeCallbacks,
                                    this,
                                    _rx_buffer);
+
                         _rx_buffer.clear();
                     }
                 }
                 else
                 {
                     std::lock_guard<std::mutex> locker(_rx_buffer_lock);
-                    int size = 0;
-                    
+
                     try {
-                        size = _serial->read(_rx_buffer, 1000);
+                        _serial->read(_rx_buffer, 1000);
                     }
                     catch (serial::SerialException e)
                     {
                         closePort();
                     }
 
-                    if (size > 0)
+                    if (_rx_buffer.size() > 0)
                     {
                         /* Run the callbacks and clear the buffer. */
                         std::async(std::launch::async,
                                    &SerialPipe::executeCallbacks,
                                    this,
                                    _rx_buffer);
+
                         _rx_buffer.clear();
                     }
                 }
@@ -372,6 +373,16 @@ public:
 
         if (!_serial->isOpen())
             _serial->open();
+    }
+
+    /**
+     * @brief   Returns the state of the serial port.
+     *
+     * @return  True if the port is open.
+     */
+    bool isOpen()
+    {
+       return _serial->isOpen();
     }
 };
 
