@@ -376,7 +376,9 @@ public:
      */
     bool isOpen()
     {
-       return _serial->isOpen();
+        std::lock_guard<std::mutex> locker(_serial_lock);
+
+        return _serial->isOpen();
     }
 };
 
