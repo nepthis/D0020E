@@ -60,24 +60,24 @@ private:
         serial_callback callback;
     };
 
-    /** @brief Holder for the serialport object. */
+    /** @brief Holder for the serial port object. */
     serial::Serial *_serial;
 
-    /** @brief Mutex for the serialport. */
+    /** @brief Mutex for the serial port. */
     std::mutex _serial_lock;
 
     /** @brief Mutex for the ID counter and the callback list. */
     std::mutex _id_cblock;
 
     /** @brief Vector holding the registered callbacks. */
-    std::vector< serial_callback_holder > callbacks;
+    std::vector<serial_callback_holder> callbacks;
 
     /** @brief ID counter for the removal of subscriptions. */
     int _id;
 
     /** @brief Selector if the serial data is binary or ASCII with '\n'
      *         termination. */
-    bool _string_data;
+    const bool _string_data;
 
     /** @brief The holder of the transmit and receive threads. */
     std::thread _tx_thread, _rx_thread;
@@ -91,8 +91,11 @@ private:
     /** @brief Data queue for receive. */
     std::vector<uint8_t> _rx_buffer;
 
-    /** @brief Mutexes for send/receive queue access. */
-    std::mutex _tx_buffer_lock, _rx_buffer_lock;
+    /** @brief Mutex for send queue access. */
+    std::mutex _tx_buffer_lock;
+
+    /** @brief Variable to wait for the port to be open. */
+    std::condition_variable _serial_wait;
 
     /** @brief Shutdown flag for the workers. */
     volatile bool shutdown;
@@ -100,70 +103,50 @@ private:
     /** @brief Worker function for the read thread. */
     void readSerialWorker()
     {
+        std::string data;
+
         while (!shutdown)
         {
-            /* Check so the port is open, else sleep and check again. */
-            if (!_serial->isOpen())
+            /* Check so the port is open, else wait. */
             {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                std::unique_lock<std::mutex> locker(_serial_lock);
+                _serial_wait.wait(locker, [&](){
+                    return (_serial->isOpen() || shutdown);
+                });
             }
-            else
-            {
-                /* Read data based on the setup. */
+
+            /* Read and process if any data is received. */
+            try {
                 if (_string_data)
                 {
-                    std::string data;
-                    int size = 0;
-
-                    /* Read the string and process if any data is received. */
-                    try {
-                        size = _serial->readline(data);
-                    }
-                    catch (serial::SerialException e)
+                    if (_serial->readline(data) > 0)
                     {
-                        closePort();
-                    }
-
-                    if (size > 0)
-                    {
-                        std::lock_guard<std::mutex> locker(_rx_buffer_lock);
-
-                        /* Move the data to the buffer. */
                         _rx_buffer.insert(_rx_buffer.begin(),
-                                          data.begin(), data.end());
+                                          data.begin(),
+                                          data.end());
 
-                        /* Run the callbacks and clear the buffer. */
-                        std::async(std::launch::async,
-                                   &SerialPipe::executeCallbacks,
-                                   this,
-                                   _rx_buffer);
-
-                        _rx_buffer.clear();
+                        data.clear();
                     }
                 }
                 else
-                {
-                    std::lock_guard<std::mutex> locker(_rx_buffer_lock);
+                    _serial->read(_rx_buffer, 255);
 
-                    try {
-                        _serial->read(_rx_buffer, 1000);
-                    }
-                    catch (serial::SerialException e)
-                    {
-                        closePort();
-                    }
+            }
+            catch (const serial::SerialException &e)
+            {
+                closePort();
+            }
+            catch(const serial::PortNotOpenedException &e) {}
 
-                    if (_rx_buffer.size() > 0)
-                    {
-                        /* Run the callbacks and clear the buffer. */
-                        std::async(std::launch::async,
-                                   &SerialPipe::executeCallbacks,
-                                   this,
-                                   _rx_buffer);
+            if (_rx_buffer.size() > 0)
+            {
+                /* Run the callbacks and clear the buffer. */
+                std::async(std::launch::async,
+                           &SerialPipe::executeCallbacks,
+                           this,
+                           _rx_buffer);
 
-                        _rx_buffer.clear();
-                    }
-                }
+                _rx_buffer.clear();
             }
         }
     }
@@ -173,36 +156,38 @@ private:
     {
         while (!shutdown)
         {
-            /* Check so the port is open, else sleep and check again. */
-            if (!_serial->isOpen())
+            /* Check so the port is open, else wait. */
             {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-            else
-            {
-                std::unique_lock<std::mutex> locker(_tx_buffer_lock);
-
-                _tx_dowork.wait(locker, [&]() {
-                    return (!_tx_buffer.empty() || shutdown);
+                std::unique_lock<std::mutex> locker(_serial_lock);
+                _serial_wait.wait(locker, [&](){
+                    return (_serial->isOpen() || shutdown);
                 });
-
-                /* Write the buffer to the serial. */
-                if (_serial->isOpen())
-                {
-                    try {
-                        _serial->write(_tx_buffer);
-                        _tx_buffer.clear();
-                    }
-                    catch (serial::SerialException e)
-                    {
-                        closePort();
-                    }
-                }
             }
+
+            /* Wait for a transmission. */
+            std::unique_lock<std::mutex> locker2(_tx_buffer_lock);
+            _tx_dowork.wait(locker2, [&]() {
+                return (!_tx_buffer.empty() || shutdown);
+            });
+
+            /* Write the buffer to the serial. */
+            try {
+                _serial->write(_tx_buffer);
+                _tx_buffer.clear();
+            }
+            catch (const serial::SerialException &e)
+            {
+                closePort();
+            }
+            catch(const serial::PortNotOpenedException &e) {}
         }
     }
 
-    /** @brief Execute callbacks with data. */
+    /**
+     * @brief   Execute callbacks with data.
+     *
+     * @param[in]   Payload vector, by value to copy from the receiver thread.
+     */
     void executeCallbacks(const std::vector<uint8_t> payload)
     {
         std::lock_guard<std::mutex> locker(_id_cblock);
@@ -221,13 +206,14 @@ public:
      *
      * @note    It does not automatically open the serial port.
      *
-     * @param[in] port  Port name: "/dev/ttyXX" for Linux, "COMX" for Windows.
-     * @param[in] baudrate  Sets the baudrate of the port.
+     * @param[in] port          Port name: "/dev/ttyXX" for Linux, "COMX" for
+     *                          Windows.
+     * @param[in] baudrate      Sets the baudrate of the port.
      * @param[in] timeout_ms    Sets the timeout for the communication.
      * @param[in] string_data   Sets if the data is binary or string.
      */
     SerialPipe(std::string port, unsigned int baudrate,
-               unsigned int timeout_ms = 100, bool string_data = true)
+               unsigned int timeout_ms = 1000, bool string_data = true)
         : _string_data(string_data)
     {
         std::lock_guard<std::mutex> locker(_serial_lock);
@@ -250,6 +236,10 @@ public:
         _serial = new serial::Serial("", baudrate, timeout); // RAII
         _serial->setPort(port);
 
+        /* Reserve some space for the buffers. */
+        _tx_buffer.reserve(1024);
+        _rx_buffer.reserve(1024);
+
         _rx_thread = std::thread(&SerialPipe::readSerialWorker, this);
         _tx_thread = std::thread(&SerialPipe::writeSerialWorker, this);
     }
@@ -265,6 +255,7 @@ public:
         /* Set the shutdown flag and signal. */
         shutdown = true;
         _tx_dowork.notify_one();
+        _serial_wait.notify_all();
 
         /* Wait for the threads to gracefully exit. */
         _rx_thread.join();
@@ -373,6 +364,9 @@ public:
 
         if (!_serial->isOpen())
             _serial->open();
+
+        /* Notify the workers that the port is available. */
+        _serial_wait.notify_all();
     }
 
     /**

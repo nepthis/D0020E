@@ -41,6 +41,9 @@ int main()
 
     cin.get();
 
+    /* Close port */
+    sp.closePort();
+
     return 0;
 }
 
