@@ -332,7 +332,7 @@ public:
      *
      * @return      Return true if the ID was deleted.
      */
-    bool unregisterCallback(int id)
+    bool unregisterCallback(const int id)
     {
         std::lock_guard<std::mutex> locker(_id_cblock);
 
@@ -363,6 +363,21 @@ public:
         _tx_buffer.insert(_tx_buffer.end(), data.begin(), data.end());
         _tx_dowork.notify_one();
     }
+
+    /**
+      * @brief   Transmit a data packet over the serial (individual bytes).
+      *
+      * @param[in]   An array of bytes (uint8_t).
+      */
+     void serialTransmit(const uint8_t data[], const size_t size)
+     {
+         std::unique_lock<std::mutex> locker(_tx_buffer_lock);
+
+         for (size_t i = 0; i < size; i++)
+             _tx_buffer.emplace_back(data[i]);
+
+         _tx_dowork.notify_one();
+     }
 
     /**
      * @brief   Transmit a string packet over the serial.
