@@ -23,6 +23,7 @@
 
 /* Data includes */
 #include <vector>
+#include <queue>
 #include <cstdint>
 #include <string>
 
@@ -82,17 +83,29 @@ private:
     /** @brief The holder of the transmit and receive threads. */
     std::thread _tx_thread, _rx_thread;
 
+    /** @brief The holder of the callback thread. */
+    std::thread _cb_thread;
+
     /** @brief Data queue for transmit. */
     std::vector<uint8_t> _tx_buffer;
 
     /** @brief Condition variable for the transmit buffer. */
     std::condition_variable _tx_dowork;
 
+    /** @brief Mutex for send queue access. */
+    std::mutex _tx_buffer_lock;
+
     /** @brief Data queue for receive. */
     std::vector<uint8_t> _rx_buffer;
 
-    /** @brief Mutex for send queue access. */
-    std::mutex _tx_buffer_lock;
+    /** @brief Data queue for receive. */
+    std::queue<std::vector<uint8_t>> _cb_buffer;
+
+    /** @brief Condition variable for the transmit buffer. */
+    std::condition_variable _cb_dowork;
+
+    /** @brief Mutex for callback queue access. */
+    std::mutex _cb_buffer_lock;
 
     /** @brief Variable to wait for the port to be open. */
     std::condition_variable _serial_wait;
@@ -141,10 +154,9 @@ private:
             if (_rx_buffer.size() > 0)
             {
                 /* Run the callbacks and clear the buffer. */
-                std::async(std::launch::async,
-                           &SerialPipe::executeCallbacks,
-                           this,
-                           _rx_buffer);
+                std::lock_guard<std::mutex> cb_lock(_cb_buffer_lock);
+                _cb_buffer.emplace(_rx_buffer);
+                _cb_dowork.notify_one();
 
                 _rx_buffer.clear();
             }
@@ -183,17 +195,35 @@ private:
         }
     }
 
-    /**
-     * @brief   Execute callbacks with data.
-     *
-     * @param[in]   Payload vector, by value to copy from the receiver thread.
-     */
-    void executeCallbacks(const std::vector<uint8_t> payload)
+    /** @brief Worker function for the callback thread. */
+    void callbackWorker()
     {
-        std::lock_guard<std::mutex> locker(_id_cblock);
+        std::vector<uint8_t> payload;
 
-        for (auto &cb : callbacks)
-            cb.callback(payload);
+        while (!shutdown)
+        {
+            /* Check so there are data callback, else wait. */
+            std::unique_lock<std::mutex> locker(_cb_buffer_lock);
+            _cb_dowork.wait(locker, [&](){
+               return (!_cb_buffer.empty() || shutdown);
+            });
+
+            if (!shutdown)
+            {
+                payload = _cb_buffer.front();
+                _cb_buffer.pop();
+
+                /* Unlock the buffer before starting processing. */
+                locker.unlock();
+
+                /* Execute callbacks. */
+                std::lock_guard<std::mutex> locker2(_id_cblock);
+
+                for (auto &cb : callbacks)
+                    cb.callback(payload);
+            }
+
+        }
     }
 
 
@@ -242,6 +272,7 @@ public:
 
         _rx_thread = std::thread(&SerialPipe::readSerialWorker, this);
         _tx_thread = std::thread(&SerialPipe::writeSerialWorker, this);
+        _cb_thread = std::thread(&SerialPipe::callbackWorker, this);
     }
 
     /**
@@ -252,14 +283,16 @@ public:
      */
     ~SerialPipe()
     {
-        /* Set the shutdown flag and signal. */
+        /* Set the shutdown flag and signal all workers. */
         shutdown = true;
         _tx_dowork.notify_one();
         _serial_wait.notify_all();
+        _cb_dowork.notify_one();
 
         /* Wait for the threads to gracefully exit. */
         _rx_thread.join();
         _tx_thread.join();
+        _cb_thread.join();
 
         /* Close the serial port and delete it. */
         {
