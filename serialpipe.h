@@ -54,10 +54,11 @@ private:
      *         MAX_INT number of registrations / unregistrations. */
     struct serial_callback_holder
     {
-        serial_callback_holder(int _id, serial_callback _cb)
+        serial_callback_holder(const unsigned int _id, serial_callback _cb)
             : id(_id), callback(_cb) { }
 
-        int id;
+        unsigned int id; /* Cannot be const since it is used in a vector and the
+                            default copy constructore will fail. */
         serial_callback callback;
     };
 
@@ -74,7 +75,7 @@ private:
     std::vector<serial_callback_holder> callbacks;
 
     /** @brief ID counter for the removal of subscriptions. */
-    int _id;
+    unsigned int _id;
 
     /** @brief Selector if the serial data is binary or ASCII with '\n'
      *         termination. */
@@ -322,7 +323,7 @@ public:
      *
      * @return      Return the ID of the callback, is used for unregistration.
      */
-    int registerCallback(serial_callback callback)
+    unsigned int registerCallback(serial_callback callback)
     {
         std::lock_guard<std::mutex> locker(_id_cblock);
 
@@ -339,7 +340,7 @@ public:
      *
      * @return      Return true if the ID was deleted.
      */
-    bool unregisterCallback(const int id)
+    bool unregisterCallback(const unsigned int id)
     {
         std::lock_guard<std::mutex> locker(_id_cblock);
 
