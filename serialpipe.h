@@ -83,9 +83,6 @@ private:
     /** @brief The holder of the transmit and receive threads. */
     std::thread _tx_thread, _rx_thread;
 
-    /** @brief The holder of the callback thread. */
-    std::thread _cb_thread;
-
     /** @brief Data queue for transmit. */
     std::vector<uint8_t> _tx_buffer;
 
@@ -101,6 +98,9 @@ private:
     /** @brief Data queue for receive. */
     std::queue<std::vector<uint8_t>> _cb_buffer;
 
+    /** @brief The holder of the callback thread. */
+    std::thread _cb_thread;
+
     /** @brief Condition variable for the transmit buffer. */
     std::condition_variable _cb_dowork;
 
@@ -113,7 +113,9 @@ private:
     /** @brief Shutdown flag for the workers. */
     volatile bool shutdown;
 
-    /** @brief Worker function for the read thread. */
+    /**
+     * @brief Worker function for the read thread.
+     */
     void readSerialWorker()
     {
         std::string data;
@@ -151,6 +153,7 @@ private:
             }
             catch(const serial::PortNotOpenedException &e) {}
 
+            /* Check the buffer and move data to callback processing. */
             if (_rx_buffer.size() > 0)
             {
                 /* Run the callbacks and clear the buffer. */
@@ -163,7 +166,9 @@ private:
         }
     }
 
-    /** @brief Worker function for the write thread. */
+    /**
+     * @brief Worker function for the write thread.
+     */
     void writeSerialWorker()
     {
         while (!shutdown)
@@ -195,7 +200,9 @@ private:
         }
     }
 
-    /** @brief Worker function for the callback thread. */
+    /**
+     * @brief Worker function for the callback thread.
+     */
     void callbackWorker()
     {
         std::vector<uint8_t> payload;
@@ -365,19 +372,19 @@ public:
     }
 
     /**
-      * @brief   Transmit a data packet over the serial (individual bytes).
-      *
-      * @param[in]   An array of bytes (uint8_t).
-      */
-     void serialTransmit(const uint8_t data[], const size_t size)
-     {
-         std::unique_lock<std::mutex> locker(_tx_buffer_lock);
+     * @brief   Transmit a data packet over the serial (individual bytes).
+     *
+     * @param[in]   An array of bytes (uint8_t).
+     */
+    void serialTransmit(const uint8_t data[], const size_t size)
+    {
+        std::unique_lock<std::mutex> locker(_tx_buffer_lock);
 
-         for (size_t i = 0; i < size; i++)
-             _tx_buffer.emplace_back(data[i]);
+        for (size_t i = 0; i < size; i++)
+            _tx_buffer.emplace_back(data[i]);
 
-         _tx_dowork.notify_one();
-     }
+        _tx_dowork.notify_one();
+    }
 
     /**
      * @brief   Transmit a string packet over the serial.
