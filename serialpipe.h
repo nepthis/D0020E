@@ -318,10 +318,10 @@ public:
     /**
      * @brief   Register a callback for data received.
      *
-     * @param[in]   The function to register.
-     * @note        Shall be of the form void(const std::vector<uint8_t> &).
+     * @param[in] callback  The function to register.
+     * @note    Shall be of the form void(const std::vector<uint8_t> &).
      *
-     * @return      Return the ID of the callback, is used for unregistration.
+     * @return  Return the ID of the callback, is used for unregistration.
      */
     unsigned int registerCallback(serial_callback callback)
     {
@@ -336,9 +336,9 @@ public:
     /**
      * @brief   Unregister a callback from the queue.
      *
-     * @param[in]   The ID supplied from @p registerCallback.
+     * @param[in] id  The ID supplied from @p registerCallback.
      *
-     * @return      Return true if the ID was deleted.
+     * @return  Return true if the ID was deleted.
      */
     bool unregisterCallback(const unsigned int id)
     {
@@ -362,7 +362,7 @@ public:
     /**
      * @brief   Transmit a data packet over the serial (individual bytes).
      *
-     * @param[in]   A vector of bytes (uint8_t).
+     * @param[in] data  A vector of bytes (uint8_t).
      */
     void serialTransmit(const std::vector<uint8_t> &data)
     {
@@ -375,7 +375,8 @@ public:
     /**
      * @brief   Transmit a data packet over the serial (individual bytes).
      *
-     * @param[in]   An array of bytes (uint8_t).
+     * @param[in] data  An array of bytes (uint8_t).
+     * @param[in] size  The size of the array.
      */
     void serialTransmit(const uint8_t data[], const size_t size)
     {
@@ -390,7 +391,7 @@ public:
     /**
      * @brief   Transmit a string packet over the serial.
      *
-     * @param[in]   A string.
+     * @param[in] data  A string.
      */
     void serialTransmit(const std::string &data)
     {
