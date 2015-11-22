@@ -3,3 +3,5 @@ tags
 
 # Ignore . files
 .*
+test
+doc/html
