@@ -77,9 +77,11 @@ private:
     /** @brief ID counter for the removal of subscriptions. */
     unsigned int _id;
 
-    /** @brief Selector if the serial data is binary or ASCII with '\n'
-     *         termination. */
+    /** @brief Selector if the serial data is binary or ASCII termination. */
     const bool _string_data;
+
+    /** @brief String termination. */
+    const std::string _string_termination;
 
     /** @brief The holder of the transmit and receive threads. */
     std::thread _tx_thread, _rx_thread;
@@ -135,7 +137,7 @@ private:
             try {
                 if (_string_data)
                 {
-                    if (_serial->readline(data) > 0)
+                    if (_serial->readline(data, 65535, _string_termination) > 0)
                     {
                         _rx_buffer.insert(_rx_buffer.begin(),
                                           data.begin(),
@@ -251,8 +253,9 @@ public:
      * @param[in] string_data   Sets if the data is binary or string.
      */
     SerialPipe(std::string port, unsigned int baudrate,
-               unsigned int timeout_ms = 1000, bool string_data = true)
-        : _string_data(string_data)
+               unsigned int timeout_ms = 1000, bool string_data = true,
+               std::string string_termination = "\n")
+        : _string_data(string_data), _string_termination(string_termination)
     {
         std::lock_guard<std::mutex> locker(_serial_lock);
 
