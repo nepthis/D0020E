@@ -24,6 +24,7 @@
 /* Data includes */
 #include <vector>
 #include <queue>
+#include <map>
 #include <cstdint>
 #include <string>
 
@@ -48,20 +49,6 @@ typedef std::function<void(const std::vector<uint8_t> &)> serial_callback;
 class SerialPipe
 {
 private:
-
-    /** @brief Internal holder for a callback, including function pointer and
-     *         ID for deletion late. This has the drawback of allowing a max of
-     *         MAX_INT number of registrations / unregistrations. */
-    struct serial_callback_holder
-    {
-        serial_callback_holder(const unsigned int _id, serial_callback _cb)
-            : id(_id), callback(_cb) { }
-
-        unsigned int id; /* Cannot be const since it is used in a vector and the
-                            default copy constructore will fail. */
-        serial_callback callback;
-    };
-
     /** @brief Holder for the serial port object. */
     serial::Serial *_serial;
 
@@ -71,8 +58,8 @@ private:
     /** @brief Mutex for the ID counter and the callback list. */
     std::mutex _id_cblock;
 
-    /** @brief Vector holding the registered callbacks. */
-    std::vector<serial_callback_holder> callbacks;
+    /** @brief Map holding the registered callbacks. */
+    std::map<unsigned int, serial_callback> callbacks;
 
     /** @brief ID counter for the removal of subscriptions. */
     unsigned int _id;
@@ -230,7 +217,7 @@ private:
                 std::lock_guard<std::mutex> locker2(_id_cblock);
 
                 for (auto &cb : callbacks)
-                    cb.callback(payload);
+                    cb.second(payload);
             }
 
         }
@@ -331,7 +318,7 @@ public:
         std::lock_guard<std::mutex> locker(_id_cblock);
 
         /* Add the callback to the list. */
-        callbacks.emplace_back(serial_callback_holder(_id, callback));
+        callbacks.emplace(_id, callback);
 
         return _id++;
     }
@@ -347,19 +334,12 @@ public:
     {
         std::lock_guard<std::mutex> locker(_id_cblock);
 
-        /* Delete the callback with correct ID, a little ugly. */
-        for (unsigned int i = 0; i < callbacks.size(); i++)
-        {
-            if (callbacks[i].id == id)
-            {
-                callbacks.erase(callbacks.begin() + i);
-
-                return true;
-            }
-        }
-
-        /* No match, return false. */
-        return false;
+        /* Delete the callback with correct ID. */
+        if (callbacks.erase(id) > 0)
+            return true;
+        else
+            /* No match, return false. */
+            return false;
     }
 
     /**
