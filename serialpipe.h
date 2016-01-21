@@ -252,10 +252,6 @@ public:
         /* Calculate the inter-byte timeout based on 10 characters. */
         unsigned int inter_byte_timeout = (10*1000*10) / baudrate;
 
-        /* If it was less than 1 ms, round up to 1 ms. */
-        if (inter_byte_timeout == 0)
-            inter_byte_timeout = 1;
-
         /* Connect to the serial port and start the workers. */
         serial::Timeout timeout(inter_byte_timeout, timeout_ms, 0,
                                 timeout_ms, 0);
